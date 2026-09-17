@@ -1,1224 +1,617 @@
 <!DOCTYPE html>
-<html lang="en" class="h-full bg-slate-950 text-slate-100">
+<html lang="en">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>10701 Map V8 September 2026 - Interactive Spot Manager</title>
-    <script src="https://cdn.tailwindcss.com">
-        // Multi-Select & Dragging Variables
-let selectedSpotIds = new Set();
-let isSelecting = false;
-let isDraggingSpot = false;
-let isPanning = false;
-let selectionBoxStart = { x: 0, y: 0 };
-let startMousePos = { x: 0, y: 0 };
-
-const viewport = document.getElementById('viewport');
-const selectionBox = document.getElementById('selectionBox');
-
-// 1. MOUSE DOWN
-viewport.addEventListener('mousedown', (e) => {
-  const rect = viewport.getBoundingClientRect();
-  const mouseX = e.clientX - rect.left;
-  const mouseY = e.clientY - rect.top;
-
-  const targetSpot = e.target.closest('g[data-id]');
-
-  // SHIFT + CLICK DRAG -> Start Selection Box
-  if (e.shiftKey) {
-    isSelecting = true;
-    selectionBoxStart = { x: mouseX, y: mouseY };
-    selectionBox.style.left = `${mouseX}px`;
-    selectionBox.style.top = `${mouseY}px`;
-    selectionBox.style.width = '0px';
-    selectionBox.style.height = '0px';
-    selectionBox.classList.remove('hidden');
-    return;
-  }
-
-  // CLICK ON A SPOT
-  if (targetSpot) {
-    const clickedId = targetSpot.dataset.id;
-    if (!selectedSpotIds.has(clickedId)) {
-      if (!e.ctrlKey && !e.metaKey) selectedSpotIds.clear();
-      selectedSpotIds.add(clickedId);
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>10701 FORD LLC - Yard Map V8</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+  <style>
+    .canvas-container { user-select: none; }
+    .selection-box {
+      position: absolute;
+      border: 2px dashed #3b82f6;
+      background-color: rgba(59, 130, 246, 0.25);
+      pointer-events: none;
+      z-index: 50;
     }
-
-    if (isEditMode) {
-      isDraggingSpot = true;
-      startMousePos = { x: e.clientX, y: e.clientY };
+    .spot-selected rect {
+      stroke: #3b82f6 !important;
+      stroke-width: 3px !important;
+      filter: drop-shadow(0 0 8px rgba(59, 130, 246, 0.9));
     }
-    renderMap(); // Redraw with selection borders
-    return;
-  }
-
-  // CLICK EMPTY CANVAS -> Pan map
-  if (!targetSpot) {
-    isPanning = true;
-    startMousePos = { x: e.clientX - pan.x, y: e.clientY - pan.y };
-    if (!e.ctrlKey) selectedSpotIds.clear();
-    renderMap();
-  }
-});
-
-// 2. MOUSE MOVE
-window.addEventListener('mousemove', (e) => {
-  const rect = viewport.getBoundingClientRect();
-  const mouseX = e.clientX - rect.left;
-  const mouseY = e.clientY - rect.top;
-
-  // Handle Drag Selection Box
-  if (isSelecting) {
-    const width = Math.abs(mouseX - selectionBoxStart.x);
-    const height = Math.abs(mouseY - selectionBoxStart.y);
-    const left = Math.min(mouseX, selectionBoxStart.x);
-    const top = Math.min(mouseY, selectionBoxStart.y);
-
-    selectionBox.style.left = `${left}px`;
-    selectionBox.style.top = `${top}px`;
-    selectionBox.style.width = `${width}px`;
-    selectionBox.style.height = `${height}px`;
-
-    // Highlight all spots inside marquee box
-    spots.forEach(spot => {
-      const screenX = spot.x * zoom + pan.x;
-      const screenY = spot.y * zoom + pan.y;
-      const screenW = (spot.width || 20) * zoom;
-      const screenH = (spot.height || 48) * zoom;
-
-      if (screenX < left + width && screenX + screenW > left &&
-          screenY < top + height && screenY + screenH > top) {
-        selectedSpotIds.add(spot.id);
-      }
-    });
-    renderMap();
-    return;
-  }
-
-  // Handle Multi-Spot Group Dragging
-  if (isDraggingSpot && isEditMode) {
-    const dx = (e.clientX - startMousePos.x) / zoom;
-    const dy = (e.clientY - startMousePos.y) / zoom;
-
-    spots.forEach(spot => {
-      if (selectedSpotIds.has(spot.id)) {
-        spot.x += dx;
-        spot.y += dy;
-      }
-    });
-
-    startMousePos = { x: e.clientX, y: e.clientY };
-    renderMap();
-    return;
-  }
-
-  // Handle Canvas Panning
-  if (isPanning) {
-    pan.x = e.clientX - startMousePos.x;
-    pan.y = e.clientY - startMousePos.y;
-    mapGroup.setAttribute('transform', `translate(${pan.x}, ${pan.y}) scale(${zoom})`);
-  }
-});
-
-// 3. MOUSE UP
-window.addEventListener('mouseup', () => {
-  if (isSelecting) {
-    isSelecting = false;
-    selectionBox.classList.add('hidden');
-  }
-  if (isDraggingSpot) {
-    isDraggingSpot = false;
-    if (typeof saveToLocalStorage === 'function') saveToLocalStorage();
-  }
-  isPanning = false;
-});
-    </script>
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
-    <script>
-        tailwind.config = {
-            theme: {
-                extend: {
-                    fontFamily: {
-                        sans: ['Inter', 'sans-serif'],
-                        mono: ['JetBrains Mono', 'monospace'],
-                    },
-                    colors: {
-                        legend: {
-                            dropTrailer: '#D97706',  // Amber/Gold
-                            company: '#EAB308',      // Yellow
-                            vip: '#A855F7',          // Purple
-                            ownerOp: '#06B6D4',      // Cyan
-                            redged: '#EF4444',       // Red / Hotspot
-                            bobtail: '#F59E0B',      // Gold/Amber
-                            hooked: '#3B82F6',       // Blue
-                            parkingClub: '#EC4899',  // Bright Pink
-                            empty: '#22C55E'         // Green
-                        }
-                    }
-                }
-            }
-        }
-    </script>
-    <style>
-        ::-webkit-scrollbar { width: 6px; height: 6px; }
-        ::-webkit-scrollbar-track { background: #0b1120; }
-        ::-webkit-scrollbar-thumb { background: #334155; border-radius: 4px; }
-        ::-webkit-scrollbar-thumb:hover { background: #475569; }
-
-        .grid-bg {
-            background-image: radial-gradient(rgba(255, 255, 255, 0.07) 1px, transparent 1px);
-            background-size: 20px 20px;
-        }
-
-        .spot-element {
-            transition: transform 0.1s ease, filter 0.15s ease;
-            cursor: pointer;
-        }
-        .spot-element:hover {
-            filter: brightness(1.3) drop-shadow(0 0 6px rgba(255, 255, 255, 0.8));
-            stroke: #ffffff !important;
-            stroke-width: 2.5px !important;
-        }
-
-        .selected-spot-active {
-            stroke: #38BDF8 !important;
-            stroke-width: 3.5px !important;
-            filter: drop-shadow(0 0 10px rgba(56, 189, 248, 0.9)) !important;
-        }
-
-        .highlight-search {
-            animation: pulse-glow 1.2s infinite alternate;
-            stroke: #FACC15 !important;
-            stroke-width: 3px !important;
-        }
-
-        @keyframes pulse-glow {
-            from { filter: drop-shadow(0 0 4px #FACC15); }
-            to { filter: drop-shadow(0 0 14px #FACC15); }
-        }
-
-        /* Styling for the drag selection marquee box */
-.selection-box {
-  position: absolute;
-  border: 2px dashed #3b82f6;
-  background-color: rgba(59, 130, 246, 0.25);
-  pointer-events: none;
-  z-index: 50;
-}
-
-/* Highlight border for selected spots */
-.spot-selected rect {
-  stroke: #3b82f6 !important;
-  stroke-width: 3px !important;
-  filter: drop-shadow(0 0 6px rgba(59, 130, 246, 0.9));
-}
-    </style>
+  </style>
 </head>
-<body class="h-full flex flex-col font-sans overflow-hidden select-none bg-slate-950 text-slate-100">
+<body class="bg-slate-900 text-slate-100 h-screen flex flex-col overflow-hidden font-sans">
 
-    <!-- Top Header -->
-    <header class="h-16 bg-slate-900 border-b border-slate-800 px-4 lg:px-6 flex items-center justify-between z-30 shrink-0">
-        <div class="flex items-center space-x-4">
-            <div class="flex items-center space-x-3">
-                <div class="w-10 h-10 rounded-xl bg-gradient-to-tr from-amber-500 via-purple-600 to-cyan-500 flex items-center justify-center shadow-lg shadow-purple-500/20 font-mono font-black text-white text-lg">
-                    10701
-                </div>
-                <div>
-                    <h1 class="text-base font-bold text-slate-100 leading-tight tracking-wide flex items-center gap-2">
-                        10701 Map V8 September 2026
-                        <span class="bg-amber-500/10 text-amber-400 text-[10px] px-2 py-0.5 rounded border border-amber-500/20 font-mono font-semibold">10701 FORD RD</span>
-                    </h1>
-                    <p class="text-xs text-slate-400">Commercial Truck & Trailer Yard Operations</p>
-                </div>
-            </div>
-        </div>
-
-        <!-- Real-Time Yard Stats -->
-        <div class="hidden xl:flex items-center space-x-6 text-xs font-medium">
-            <div class="flex items-center space-x-2 bg-slate-950 px-3 py-1.5 rounded-lg border border-slate-800">
-                <span class="text-slate-400">Total Capacity:</span>
-                <span id="statTotal" class="font-mono font-bold text-slate-200">0</span>
-            </div>
-            <div class="flex items-center space-x-2 bg-slate-950 px-3 py-1.5 rounded-lg border border-slate-800">
-                <span class="text-slate-400">Occupied:</span>
-                <span id="statOccupied" class="font-mono font-bold text-rose-400">0</span>
-            </div>
-            <div class="flex items-center space-x-2 bg-slate-950 px-3 py-1.5 rounded-lg border border-slate-800">
-                <span class="text-slate-400">Occupancy Rate:</span>
-                <span id="statRate" class="font-mono font-bold text-emerald-400">0%</span>
-            </div>
-            <div class="flex items-center space-x-2 bg-slate-950 px-3 py-1.5 rounded-lg border border-slate-800">
-                <span class="text-slate-400">Available:</span>
-                <span id="statAvailable" class="font-mono font-bold text-emerald-400">0</span>
-            </div>
-        </div>
-
-        <!-- Mode Switches & Utility Controls -->
-        <div class="flex items-center space-x-2">
-            <button id="layoutEditToggle" class="bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700 px-3 py-1.5 rounded-lg text-xs font-semibold flex items-center space-x-2 transition-colors">
-                <i class="fa-solid fa-compass-drafting text-amber-400"></i>
-                <span id="editToggleText">Layout Mode</span>
-            </button>
-            <button id="resetDataBtn" title="Reset to 10701 V8 Default Layout" class="p-2 text-slate-400 hover:text-rose-400 hover:bg-slate-800 rounded-lg transition-colors">
-                <i class="fa-solid fa-rotate-left"></i>
-            </button>
-            <button id="exportDataBtn" title="Export Map JSON" class="p-2 text-slate-400 hover:text-cyan-400 hover:bg-slate-800 rounded-lg transition-colors">
-                <i class="fa-solid fa-download"></i>
-            </button>
-        </div>
-    </header>
-
-    <!-- Visual Interactive Map Canvas -->
-<div id="viewport" class="flex-1 bg-slate-950 relative overflow-hidden">
-  <svg id="yardCanvas" class="w-full h-full absolute top-0 left-0 cursor-grab">
-    <g id="mapGroup"></g>
-  </svg>
-
-  <!-- ADD THE SELECTION BOX HERE -->
-  <div id="selectionBox" class="selection-box hidden"></div>
-
-</div>
-    
-    <!-- Filter Bar & Image Legend Header -->
-    <div class="bg-slate-900/90 border-b border-slate-800 px-4 py-2 flex flex-wrap items-center justify-between gap-3 text-xs z-20 shrink-0 backdrop-blur">
-        <!-- Search & Filter Controls -->
-        <div class="flex flex-wrap items-center gap-2 flex-1 max-w-2xl">
-            <div class="relative flex-1 min-w-[200px] max-w-xs">
-                <i class="fa-solid fa-magnifying-glass absolute left-3 top-2.5 text-slate-500"></i>
-                <input type="text" id="searchInput" placeholder="Search Spot #, Driver, Fleet, Plate..." class="w-full bg-slate-950 border border-slate-800 rounded-lg pl-8 pr-3 py-1.5 text-slate-200 placeholder-slate-500 focus:outline-none focus:border-cyan-500">
-            </div>
-
-            <select id="categoryFilter" class="bg-slate-950 border border-slate-800 text-slate-300 rounded-lg px-2.5 py-1.5 focus:outline-none focus:border-cyan-500">
-                <option value="ALL">All Categories</option>
-                <option value="Drop Trailer">Drop Trailer</option>
-                <option value="Company">Company Spots</option>
-                <option value="VIP">VIP</option>
-                <option value="Owner Operators">Owner Operators</option>
-                <option value="Bobtail">Bobtail / Bobtail VIP</option>
-                <option value="Hooked">Hooked / Parking Club</option>
-            </select>
-
-            <select id="statusFilter" class="bg-slate-950 border border-slate-800 text-slate-300 rounded-lg px-2.5 py-1.5 focus:outline-none focus:border-cyan-500">
-                <option value="ALL">All Statuses</option>
-                <option value="AVAILABLE">Available</option>
-                <option value="OCCUPIED">Occupied</option>
-                <option value="RESERVED">Reserved</option>
-            </select>
-        </div>
-
-        <!-- Recreated Legend Box Matching Top Right of 10701 Image -->
-        <div class="flex flex-wrap items-center gap-2 border-l border-slate-800 pl-4">
-            <div class="flex items-center space-x-1 px-2 py-1 rounded bg-amber-900/40 border border-amber-600/50 text-[11px]">
-                <span class="w-3 h-3 rounded-xs bg-[fill:#d97706] inline-block bg-amber-600"></span>
-                <span class="text-amber-200 font-semibold">Drop Trailer</span>
-            </div>
-            <div class="flex items-center space-x-1 px-2 py-1 rounded bg-yellow-900/40 border border-yellow-500/50 text-[11px]">
-                <span class="w-3 h-3 rounded-xs bg-yellow-500 inline-block"></span>
-                <span class="text-yellow-200 font-semibold">Company</span>
-            </div>
-            <div class="flex items-center space-x-1 px-2 py-1 rounded bg-purple-900/40 border border-purple-500/50 text-[11px]">
-                <span class="w-3 h-3 rounded-xs bg-purple-500 inline-block"></span>
-                <span class="text-purple-200 font-semibold">VIP</span>
-            </div>
-            <div class="flex items-center space-x-1 px-2 py-1 rounded bg-cyan-900/40 border border-cyan-500/50 text-[11px]">
-                <span class="w-3 h-3 rounded-xs bg-cyan-500 inline-block"></span>
-                <span class="text-cyan-200 font-semibold">Owner Ops</span>
-            </div>
-            <div class="flex items-center space-x-1 px-2 py-1 rounded bg-emerald-900/40 border border-emerald-500/50 text-[11px]">
-                <span class="w-3 h-3 rounded-xs bg-emerald-500 inline-block"></span>
-                <span class="text-emerald-200 font-semibold">Empty Spots</span>
-            </div>
-            <div class="flex items-center space-x-1 px-2 py-1 rounded bg-rose-900/40 border border-rose-500/50 text-[11px]">
-                <span class="w-3 h-3 rounded-xs bg-rose-500 inline-block"></span>
-                <span class="text-rose-200 font-semibold">Hotspot</span>
-            </div>
-        </div>
-
-        <!-- Zoom Controls -->
-        <div class="flex items-center space-x-1 bg-slate-950 p-1 rounded-lg border border-slate-800">
-            <button id="zoomInBtn" title="Zoom In" class="px-2 py-1 text-slate-400 hover:text-slate-100 hover:bg-slate-800 rounded"><i class="fa-solid fa-plus"></i></button>
-            <button id="zoomResetBtn" title="Reset View" class="px-2 py-1 text-slate-400 hover:text-slate-100 hover:bg-slate-800 rounded font-mono text-[11px]">100%</button>
-            <button id="zoomOutBtn" title="Zoom Out" class="px-2 py-1 text-slate-400 hover:text-slate-100 hover:bg-slate-800 rounded"><i class="fa-solid fa-minus"></i></button>
-        </div>
+  <!-- Header Control Bar -->
+  <header class="bg-slate-800 border-b border-slate-700 p-3 flex flex-wrap justify-between items-center z-10 shrink-0">
+    <div class="flex items-center gap-3">
+      <h1 class="text-lg font-bold tracking-wide text-amber-400 flex items-center gap-2">
+        <i class="fa-solid fa-truck-ramp-box"></i> 10701 FORD LLC
+      </h1>
+      <span class="text-xs bg-slate-700 text-slate-300 px-2 py-0.5 rounded font-mono">Map V8 Sept 2026</span>
     </div>
 
-    <!-- Main Workspace -->
-    <div class="flex-1 flex relative overflow-hidden">
-        
-        <!-- Interactive Yard Canvas Container -->
-        <main id="viewport" class="flex-1 relative overflow-hidden bg-slate-950 grid-bg flex items-center justify-center cursor-grab active:cursor-grabbing">
-            
-            <!-- Toast Banner -->
-            <div id="toastNotification" class="absolute top-4 left-1/2 -translate-x-1/2 bg-cyan-600 text-white px-4 py-2 rounded-xl shadow-2xl text-xs font-semibold z-50 flex items-center space-x-2 transition-all transform duration-300 -translate-y-16 opacity-0 pointer-events-none">
-                <i class="fa-solid fa-circle-check"></i>
-                <span id="toastMsg">Notification message</span>
-            </div>
+    <div class="flex items-center gap-2">
+      <input type="text" id="searchInput" onkeyup="filterSpots()" placeholder="Search spot ID, fleet..." 
+             class="bg-slate-900 border border-slate-700 rounded px-3 py-1.5 text-xs focus:outline-none focus:border-amber-500 w-48">
+      
+      <select id="filterType" onchange="filterSpots()" class="bg-slate-900 border border-slate-700 rounded px-2 py-1.5 text-xs focus:outline-none">
+        <option value="ALL">All Categories</option>
+        <option value="Drop Trailer">Drop Trailer</option>
+        <option value="Company">Company</option>
+        <option value="VIP">VIP</option>
+        <option value="Owner Operators">Owner Operators</option>
+        <option value="Bobtail">Bobtail</option>
+      </select>
 
-            <!-- Edit Mode Watermark -->
-            <div id="editModeBanner" class="hidden absolute top-4 left-4 bg-amber-500/10 border border-amber-500/30 text-amber-400 px-3 py-2 rounded-xl text-xs font-medium z-20 flex items-center space-x-3 backdrop-blur">
-                <i class="fa-solid fa-compass-drafting text-amber-400 animate-bounce"></i>
-                <div>
-                    <p class="font-bold">LAYOUT EDIT MODE ACTIVE</p>
-                    <p class="text-[10px] text-amber-300/80">Double-click empty area to spawn a spot. Drag spots to move. Select spot to adjust angle/category.</p>
-                </div>
-            </div>
+      <button id="layoutEditToggle" class="bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700 px-3 py-1.5 rounded text-xs font-semibold flex items-center gap-2">
+        <i class="fa-solid fa-compass-drafting text-amber-400"></i> <span id="editToggleText">Layout Mode</span>
+      </button>
 
-            <!-- SVG Container -->
-            <div id="mapWrapper" class="w-full h-full flex items-center justify-center">
-                <svg id="yardSvg" class="w-full h-full touch-none select-none" xmlns="http://www.w3.org/2000/svg">
-                    <g id="mapGroup" transform="matrix(1,0,0,1,0,0)">
-                        <!-- Yard Background, Perimeter Boundaries & Roads -->
-                        <g id="backgroundGroup"></g>
-                        <!-- Parking Spot Elements -->
-                        <g id="spotsGroup"></g>
-                    </g>
-                </svg>
-            </div>
-        </main>
+      <button onclick="exportJSON()" class="bg-slate-700 hover:bg-slate-600 text-slate-200 px-3 py-1.5 rounded text-xs transition flex items-center gap-1">
+        <i class="fa-solid fa-download"></i> Export JSON
+      </button>
+      <label class="bg-slate-700 hover:bg-slate-600 text-slate-200 px-3 py-1.5 rounded text-xs cursor-pointer transition flex items-center gap-1">
+        <i class="fa-solid fa-upload"></i> Import JSON
+        <input type="file" id="importInput" class="hidden" accept=".json" onchange="importJSON(event)">
+      </label>
+    </div>
+  </header>
 
-        <!-- Right Side Spot Inspector & Manager Drawer -->
-        <aside id="inspectorPanel" class="w-80 lg:w-96 bg-slate-900 border-l border-slate-800 flex flex-col z-20 shrink-0 transition-all duration-300 shadow-2xl">
-            <!-- Header -->
-            <div class="p-4 border-b border-slate-800 flex items-center justify-between">
-                <div class="flex items-center space-x-2">
-                    <div id="spotBadgeIcon" class="w-8 h-8 rounded-lg bg-amber-500/10 border border-amber-500/20 text-amber-400 flex items-center justify-center font-mono font-bold text-xs">
-                        #
-                    </div>
-                    <div>
-                        <h2 id="inspectorSpotTitle" class="text-sm font-bold text-slate-100">Select Spot on Map</h2>
-                        <p id="inspectorSpotSub" class="text-xs text-slate-400">Click any spot on 10701 Ford layout</p>
-                    </div>
-                </div>
-                <button id="closeInspectorBtn" class="text-slate-500 hover:text-slate-300 p-1">
-                    <i class="fa-solid fa-xmark text-base"></i>
-                </button>
-            </div>
+  <!-- Main Canvas & Sidebar Container -->
+  <div class="flex-1 flex overflow-hidden relative">
 
-            <!-- Drawer Form Body -->
-            <div id="inspectorContent" class="flex-1 overflow-y-auto p-4 space-y-4">
-                
-                <div id="emptyInspectorState" class="py-16 text-center space-y-3">
-                    <div class="w-12 h-12 rounded-full bg-slate-800/80 text-slate-600 flex items-center justify-center mx-auto text-xl">
-                        <i class="fa-solid fa-hand-pointer"></i>
-                    </div>
-                    <p class="text-xs text-slate-400 max-w-[200px] mx-auto">Click any parking spot on the map canvas to view or edit details.</p>
-                </div>
+    <!-- Interactive Canvas Viewport -->
+    <div id="viewport" class="flex-1 bg-slate-950 relative overflow-hidden canvas-container cursor-grab">
+      <svg id="yardCanvas" class="w-full h-full absolute top-0 left-0">
+        <g id="mapGroup"></g>
+      </svg>
+      <div id="selectionBox" class="selection-box hidden"></div>
 
-                <form id="spotEditorForm" class="hidden space-y-4">
-                    
-                    <!-- Quick Status Buttons -->
-                    <div>
-                        <label class="text-[10px] font-semibold text-slate-400 uppercase tracking-wider block mb-1.5">Occupancy Status</label>
-                        <div class="grid grid-cols-3 gap-2">
-                            <button type="button" data-status="AVAILABLE" class="status-btn p-2 rounded-lg border border-slate-700 bg-slate-800 text-xs text-slate-300 font-semibold flex items-center justify-center space-x-1.5 hover:border-emerald-500">
-                                <span class="w-2.5 h-2.5 rounded-full bg-emerald-500"></span>
-                                <span>Empty</span>
-                            </button>
-                            <button type="button" data-status="OCCUPIED" class="status-btn p-2 rounded-lg border border-slate-700 bg-slate-800 text-xs text-slate-300 font-semibold flex items-center justify-center space-x-1.5 hover:border-rose-500">
-                                <span class="w-2.5 h-2.5 rounded-full bg-rose-500"></span>
-                                <span>Occupied</span>
-                            </button>
-                            <button type="button" data-status="RESERVED" class="status-btn p-2 rounded-lg border border-slate-700 bg-slate-800 text-xs text-slate-300 font-semibold flex items-center justify-center space-x-1.5 hover:border-purple-500">
-                                <span class="w-2.5 h-2.5 rounded-full bg-purple-500"></span>
-                                <span>Reserved</span>
-                            </button>
-                        </div>
-                    </div>
-
-                    <!-- Category & Type Config -->
-                    <div class="bg-slate-950/60 p-3 rounded-xl border border-slate-800 space-y-3">
-                        <div class="grid grid-cols-2 gap-2">
-                            <div>
-                                <label class="text-[10px] text-slate-400 block mb-1">Spot Number / ID</label>
-                                <input type="text" id="editSpotId" class="w-full bg-slate-900 border border-slate-700 rounded-lg px-2.5 py-1.5 text-xs font-mono font-bold text-slate-100 focus:border-cyan-500 focus:outline-none">
-                            </div>
-                            <div>
-                                <label class="text-[10px] text-slate-400 block mb-1">Category / Zone</label>
-                                <select id="editCategory" class="w-full bg-slate-900 border border-slate-700 rounded-lg px-2 py-1.5 text-xs text-slate-100 focus:border-cyan-500 focus:outline-none">
-                                    <option value="Drop Trailer">Drop Trailer</option>
-                                    <option value="Company">Company</option>
-                                    <option value="VIP">VIP</option>
-                                    <option value="Owner Operators">Owner Operators</option>
-                                    <option value="Bobtail">Bobtail</option>
-                                    <option value="Hooked">Hooked / Rents</option>
-                                    <option value="Empty Spots">Empty Spots</option>
-                                </select>
-                            </div>
-                        </div>
-                    </div>
-
-                    <!-- Occupant Details -->
-                    <div class="space-y-3">
-                        <h3 class="text-xs font-semibold text-slate-300 border-b border-slate-800 pb-1">Driver & Vehicle Assignment</h3>
-
-                        <div>
-                            <label class="text-[10px] text-slate-400 block mb-1">Driver Name / Fleet Operator</label>
-                            <input type="text" id="editDriver" placeholder="e.g. John Doe / Swift Transport" class="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-1.5 text-xs text-slate-200 focus:border-cyan-500 focus:outline-none">
-                        </div>
-
-                        <div class="grid grid-cols-2 gap-2">
-                            <div>
-                                <label class="text-[10px] text-slate-400 block mb-1">Truck / Trailer Plate #</label>
-                                <input type="text" id="editPlate" placeholder="e.g. 8TRK102" class="w-full bg-slate-950 border border-slate-800 rounded-lg px-2.5 py-1.5 text-xs font-mono text-slate-200 focus:border-cyan-500 focus:outline-none">
-                            </div>
-                            <div>
-                                <label class="text-[10px] text-slate-400 block mb-1">Contact Phone</label>
-                                <input type="text" id="editPhone" placeholder="(555) 000-1234" class="w-full bg-slate-950 border border-slate-800 rounded-lg px-2.5 py-1.5 text-xs text-slate-200 focus:border-cyan-500 focus:outline-none">
-                            </div>
-                        </div>
-
-                        <div class="grid grid-cols-2 gap-2">
-                            <div>
-                                <label class="text-[10px] text-slate-400 block mb-1">Check-In Date</label>
-                                <input type="date" id="editCheckIn" class="w-full bg-slate-950 border border-slate-800 rounded-lg px-2 py-1.5 text-xs text-slate-200 focus:border-cyan-500 focus:outline-none">
-                            </div>
-                            <div>
-                                <label class="text-[10px] text-slate-400 block mb-1">Expected Out</label>
-                                <input type="date" id="editCheckOut" class="w-full bg-slate-950 border border-slate-800 rounded-lg px-2 py-1.5 text-xs text-slate-200 focus:border-cyan-500 focus:outline-none">
-                            </div>
-                        </div>
-
-                        <div>
-                            <label class="text-[10px] text-slate-400 block mb-1">Yard Notes</label>
-                            <textarea id="editNotes" rows="2" placeholder="Trailer status, cargo details..." class="w-full bg-slate-950 border border-slate-800 rounded-lg p-2 text-xs text-slate-200 focus:border-cyan-500 focus:outline-none"></textarea>
-                        </div>
-                    </div>
-
-                    <!-- Layout Builder Controls -->
-                    <div id="layoutBuilderControls" class="hidden bg-amber-500/10 border border-amber-500/20 p-3 rounded-xl space-y-2">
-                        <span class="text-[10px] font-bold text-amber-400 block uppercase tracking-wide">Layout Angle & Position</span>
-                        <div class="flex items-center space-x-2">
-                            <button type="button" id="rotateSpotBtn" class="flex-1 bg-slate-800 hover:bg-slate-700 text-amber-300 text-xs py-1.5 rounded-lg border border-slate-700 flex items-center justify-center space-x-1">
-                                <i class="fa-solid fa-rotate-right"></i>
-                                <span>Rotate +15°</span>
-                            </button>
-                            <button type="button" id="deleteSpotBtn" class="bg-rose-950/60 hover:bg-rose-900 border border-rose-800 text-rose-300 text-xs px-3 py-1.5 rounded-lg flex items-center justify-center">
-                                <i class="fa-solid fa-trash"></i>
-                            </button>
-                        </div>
-                    </div>
-
-                    <!-- Save Action -->
-                    <div class="pt-2">
-                        <button type="submit" class="w-full bg-cyan-600 hover:bg-cyan-500 text-white font-semibold py-2 px-4 rounded-xl shadow-lg shadow-cyan-600/30 text-xs transition-all flex items-center justify-center space-x-2">
-                            <i class="fa-solid fa-floppy-disk"></i>
-                            <span>Save Spot Details</span>
-                        </button>
-                    </div>
-
-                </form>
-            </div>
-            
-            <!-- Quick Vacant / Occupied Footer -->
-            <div id="inspectorFooter" class="p-3 border-t border-slate-800 bg-slate-950/50 hidden">
-                <div class="flex items-center space-x-2">
-                    <button id="quickVacantBtn" class="flex-1 bg-emerald-900/30 hover:bg-emerald-900/50 border border-emerald-700/50 text-emerald-300 py-1.5 rounded-lg text-xs font-medium transition-colors">
-                        Mark Vacant
-                    </button>
-                    <button id="quickOccupiedBtn" class="flex-1 bg-rose-900/30 hover:bg-rose-900/50 border border-rose-700/50 text-rose-300 py-1.5 rounded-lg text-xs font-medium transition-colors">
-                        Mark Occupied
-                    </button>
-                </div>
-            </div>
-        </aside>
-
+      <!-- Quick Guidance Banner -->
+      <div class="absolute bottom-4 left-4 bg-slate-800/90 backdrop-blur border border-slate-700 p-3 rounded-lg text-xs text-slate-300 pointer-events-none shadow-lg">
+        <p class="font-semibold text-amber-400 mb-1"><i class="fa-solid fa-computer-mouse"></i> Multi-Select Controls:</p>
+        <ul class="space-y-0.5">
+          <li>• <b class="text-white">Shift + Click & Drag Mouse:</b> Draw box to multi-select spots.</li>
+          <li>• <b class="text-white">Click & Drag Selected Spot:</b> Move selected spots as a group (in Layout Mode).</li>
+          <li>• <b class="text-white">Click Empty Map:</b> Pan canvas. <b class="text-white">Scroll:</b> Zoom in/out.</li>
+        </ul>
+      </div>
     </div>
 
-    <script>
-        /*
-         * 10701 FORD RD MAP V8 SEPTEMBER 2026
-         * Precise Layout Generator & Interactive Manager
-         */
-
-        const CATEGORY_COLORS = {
-            'Drop Trailer': '#D97706',    // Gold/Amber
-            'Company': '#EAB308',         // Yellow
-            'VIP': '#A855F7',             // Purple
-            'Owner Operators': '#06B6D4', // Cyan
-            'Bobtail': '#F59E0B',         // Amber
-            'Hooked': '#3B82F6',          // Blue
-            'Empty Spots': '#22C55E',     // Green
-            'Hotspot': '#EF4444'          // Red
-        };
-
-        // Generates the exact 10701 Ford Rd layout structure matching the user's diagram
-        function generate10701FordLayout() {
-            const spots = [];
-
-            // 1. TOP ROW (Spots 1..37 - Drop Trailer & Company)
-            for (let i = 1; i <= 37; i++) {
-                const cat = i <= 25 ? 'Drop Trailer' : 'Company';
-                spots.push({
-                    id: `${i}`,
-                    x: 230 + (i * 26),
-                    y: 80,
-                    width: 22,
-                    height: 65,
-                    angle: 0,
-                    category: cat,
-                    status: i % 4 === 0 ? 'OCCUPIED' : 'AVAILABLE',
-                    driver: i % 4 === 0 ? `Driver ${i}` : '',
-                    plate: i % 4 === 0 ? `PLT-${100+i}` : ''
-                });
-            }
-
-            // 2. YARD GATE / UPPER BOBTAIL & VIP ROW (Spots 235..250)
-            for (let i = 0; i < 15; i++) {
-                const idNum = 235 + i;
-                const cat = i < 6 ? 'Bobtail' : (i < 11 ? 'VIP' : 'Company');
-                spots.push({
-                    id: `${idNum}`,
-                    x: 1220 + (i * 24),
-                    y: 80,
-                    width: 20,
-                    height: 65,
-                    angle: 0,
-                    category: cat,
-                    status: 'AVAILABLE'
-                });
-            }
-
-            // 3. RIGHT SIDE TOWER BAYS (C25..C30, CC38, C60..C63)
-            const rightTower = ['CC38', 'C60', 'C26', 'CC39', 'C27', 'C62', 'C28', 'C29', 'C30', '229', '228', '227', '226', '225', '222', '221', '220', '219', '218', '217', '216', '215', '214', '213', '212', '211', '210'];
-            rightTower.forEach((id, idx) => {
-                spots.push({
-                    id: id,
-                    x: 1580,
-                    y: 75 + (idx * 28),
-                    width: 60,
-                    height: 22,
-                    angle: 0,
-                    category: id.startsWith('C') ? 'Company' : 'Drop Trailer',
-                    status: idx % 5 === 0 ? 'OCCUPIED' : 'AVAILABLE'
-                });
-            });
-
-            // 4. LEFT PERIMETER VERTICAL STRIP (Spots 40 through 108)
-            for (let i = 40; i <= 108; i++) {
-                spots.push({
-                    id: `${i}`,
-                    x: 90,
-                    y: 130 + ((i - 40) * 19.5),
-                    width: 70,
-                    height: 16.5,
-                    angle: 0,
-                    category: i > 100 ? 'Company' : 'Empty Spots',
-                    status: i % 6 === 0 ? 'OCCUPIED' : 'AVAILABLE'
-                });
-            }
-
-            // 5. MIDDLE ROW BLOCK 1 (Top Island: 251-275 Back to Back with 276-300)
-            for (let i = 0; i < 25; i++) {
-                const topId = 251 + i;
-                const botId = 276 + i;
-                // Top side facing north
-                spots.push({
-                    id: `${topId}`,
-                    x: 350 + (i * 26),
-                    y: 230,
-                    width: 22,
-                    height: 65,
-                    angle: 0,
-                    category: i < 5 ? 'Drop Trailer' : (i < 18 ? 'Owner Operators' : 'VIP'),
-                    status: i % 3 === 0 ? 'OCCUPIED' : 'AVAILABLE'
-                });
-                // Bottom side facing south
-                spots.push({
-                    id: `${botId}`,
-                    x: 350 + (i * 26),
-                    y: 298,
-                    width: 22,
-                    height: 65,
-                    angle: 0,
-                    category: i < 12 ? 'VIP' : 'Owner Operators',
-                    status: i % 4 === 0 ? 'OCCUPIED' : 'AVAILABLE'
-                });
-            }
-
-            // Middle Island B1..B11 Block on Left
-            for (let i = 1; i <= 11; i++) {
-                spots.push({
-                    id: `B${i}`,
-                    x: 275,
-                    y: 195 + (i * 18.5),
-                    width: 55,
-                    height: 16,
-                    angle: 0,
-                    category: 'Company',
-                    status: 'AVAILABLE'
-                });
-            }
-
-            // 6. MIDDLE ROW BLOCK 2 (Center Island: 301-325 Back to Back with 326-350 & 351-400)
-            for (let i = 0; i < 25; i++) {
-                const topId = 301 + i;
-                const botId = 326 + i;
-                spots.push({
-                    id: `${topId}`,
-                    x: 350 + (i * 26),
-                    y: 430,
-                    width: 22,
-                    height: 65,
-                    angle: 0,
-                    category: i < 8 ? 'VIP' : (i < 18 ? 'Owner Operators' : 'Empty Spots'),
-                    status: i % 5 === 0 ? 'OCCUPIED' : 'AVAILABLE'
-                });
-                spots.push({
-                    id: `${botId}`,
-                    x: 350 + (i * 26),
-                    y: 498,
-                    width: 22,
-                    height: 65,
-                    angle: 0,
-                    category: i < 15 ? 'Empty Spots' : 'Owner Operators',
-                    status: i % 3 === 1 ? 'OCCUPIED' : 'AVAILABLE'
-                });
-            }
-
-            // B12..B23 Middle Block Left
-            for (let i = 12; i <= 23; i++) {
-                spots.push({
-                    id: `B${i}`,
-                    x: 275,
-                    y: 400 + ((i - 12) * 18.5),
-                    width: 55,
-                    height: 16,
-                    angle: 0,
-                    category: 'Company',
-                    status: 'AVAILABLE'
-                });
-            }
-
-            // 7. LOWER MIDDLE ISLE (Spots 401-450 & C-series C1..C20)
-            for (let i = 0; i < 15; i++) {
-                const topId = 401 + i;
-                spots.push({
-                    id: `${topId}`,
-                    x: 420 + (i * 26),
-                    y: 630,
-                    width: 22,
-                    height: 65,
-                    angle: 0,
-                    category: i < 8 ? 'Empty Spots' : 'Company',
-                    status: 'AVAILABLE'
-                });
-            }
-
-            // B24..B36 Bottom Block
-            for (let i = 24; i <= 36; i++) {
-                spots.push({
-                    id: `B${i}`,
-                    x: 520 + ((i - 24) * 22),
-                    y: 605,
-                    width: 20,
-                    height: 40,
-                    angle: 0,
-                    category: 'Company',
-                    status: 'AVAILABLE'
-                });
-            }
-
-            // 8. BOTTOM CURVED HIGHWAY RUNWAY (Spots 109 through 208 Hugging Southern Fence Curve)
-            const curveStartAngle = 10;
-            for (let i = 0; i < 60; i++) {
-                const idNum = 109 + i;
-                const angleRad = (i / 60) * (Math.PI / 3); // 60 degree arc
-                const cx = 170 + (i * 23.5);
-                const cy = 1480 - Math.sin(angleRad) * 450 + (i > 30 ? (i - 30) * 2 : 0);
-                const rotAngle = -15 - (i * 0.8);
-
-                spots.push({
-                    id: `${idNum}`,
-                    x: Math.round(cx),
-                    y: Math.round(cy),
-                    width: 20,
-                    height: 60,
-                    angle: Math.round(rotAngle),
-                    category: i < 40 ? 'Empty Spots' : 'Drop Trailer',
-                    status: i % 4 === 2 ? 'OCCUPIED' : 'AVAILABLE'
-                });
-            }
-
-            return spots;
-        }
-
-        class MapApp {
-            constructor() {
-                this.spots = this.loadSpots();
-                this.selectedSpotId = null;
-                this.isLayoutMode = false;
-                
-                // Pan & Zoom state
-                this.zoom = 0.85;
-                this.panX = 20;
-                this.panY = 20;
-                this.isPanning = false;
-                this.dragStart = { x: 0, y: 0 };
-
-                // Dragging spot in layout mode
-                this.draggingSpot = null;
-                this.dragOffset = { x: 0, y: 0 };
-
-                this.initDOM();
-                this.bindEvents();
-                this.render();
-            }
-
-            loadSpots() {
-                const stored = localStorage.getItem('10701_FORD_MAP_DATA');
-                if (stored) {
-                    try { return JSON.parse(stored); } catch(e) { console.error(e); }
-                }
-                return generate10701FordLayout();
-            }
-
-            saveSpots() {
-                localStorage.setItem('10701_FORD_MAP_DATA', JSON.stringify(this.spots));
-                this.updateStats();
-            }
-
-            resetLayout() {
-                if (confirm("Reset layout to 10701 Map V8 September 2026 default blueprint?")) {
-                    this.spots = generate10701FordLayout();
-                    this.saveSpots();
-                    this.selectedSpotId = null;
-                    this.render();
-                    this.showToast("Reset map to original 10701 Ford layout.");
-                }
-            }
-
-            get selectedSpot() {
-                return this.spots.find(s => s.id === this.selectedSpotId);
-            }
-
-            initDOM() {
-                this.dom = {
-                    viewport: document.getElementById('viewport'),
-                    svg: document.getElementById('yardSvg'),
-                    mapGroup: document.getElementById('mapGroup'),
-                    bgGroup: document.getElementById('backgroundGroup'),
-                    spotsGroup: document.getElementById('spotsGroup'),
-
-                    // Inspector
-                    inspectorPanel: document.getElementById('inspectorPanel'),
-                    emptyState: document.getElementById('emptyInspectorState'),
-                    editorForm: document.getElementById('spotEditorForm'),
-                    inspectorTitle: document.getElementById('inspectorSpotTitle'),
-                    inspectorSub: document.getElementById('inspectorSpotSub'),
-                    badgeIcon: document.getElementById('spotBadgeIcon'),
-                    inspectorFooter: document.getElementById('inspectorFooter'),
-
-                    // Inputs
-                    editSpotId: document.getElementById('editSpotId'),
-                    editCategory: document.getElementById('editCategory'),
-                    editDriver: document.getElementById('editDriver'),
-                    editPlate: document.getElementById('editPlate'),
-                    editPhone: document.getElementById('editPhone'),
-                    editCheckIn: document.getElementById('editCheckIn'),
-                    editCheckOut: document.getElementById('editCheckOut'),
-                    editNotes: document.getElementById('editNotes'),
-
-                    // Buttons
-                    statusBtns: document.querySelectorAll('.status-btn'),
-                    quickVacantBtn: document.getElementById('quickVacantBtn'),
-                    quickOccupiedBtn: document.getElementById('quickOccupiedBtn'),
-                    layoutEditToggle: document.getElementById('layoutEditToggle'),
-                    editToggleText: document.getElementById('editToggleText'),
-                    editModeBanner: document.getElementById('editModeBanner'),
-                    layoutBuilderControls: document.getElementById('layoutBuilderControls'),
-                    rotateSpotBtn: document.getElementById('rotateSpotBtn'),
-                    deleteSpotBtn: document.getElementById('deleteSpotBtn'),
-                    closeInspectorBtn: document.getElementById('closeInspectorBtn'),
-                    resetDataBtn: document.getElementById('resetDataBtn'),
-                    exportDataBtn: document.getElementById('exportDataBtn'),
-
-                    // Search/Filter
-                    searchInput: document.getElementById('searchInput'),
-                    categoryFilter: document.getElementById('categoryFilter'),
-                    statusFilter: document.getElementById('statusFilter'),
-
-                    // Zoom
-                    zoomInBtn: document.getElementById('zoomInBtn'),
-                    zoomOutBtn: document.getElementById('zoomOutBtn'),
-                    zoomResetBtn: document.getElementById('zoomResetBtn'),
-
-                    // Stats
-                    statTotal: document.getElementById('statTotal'),
-                    statOccupied: document.getElementById('statOccupied'),
-                    statRate: document.getElementById('statRate'),
-                    statAvailable: document.getElementById('statAvailable'),
-
-                    // Toast
-                    toast: document.getElementById('toastNotification'),
-                    toastMsg: document.getElementById('toastMsg')
-                };
-            }
-
-            bindEvents() {
-                // Viewport Pan
-                this.dom.viewport.addEventListener('mousedown', (e) => {
-                    if (e.target.closest('.spot-element') && this.isLayoutMode) return;
-                    this.isPanning = true;
-                    this.dragStart = { x: e.clientX - this.panX, y: e.clientY - this.panY };
-                });
-
-                window.addEventListener('mousemove', (e) => {
-                    if (this.isPanning) {
-                        this.panX = e.clientX - this.dragStart.x;
-                        this.panY = e.clientY - this.dragStart.y;
-                        this.applyTransform();
-                    } else if (this.draggingSpot) {
-                        const pt = this.getSVGPoint(e.clientX, e.clientY);
-                        this.draggingSpot.x = Math.round((pt.x - this.dragOffset.x) / 5) * 5;
-                        this.draggingSpot.y = Math.round((pt.y - this.dragOffset.y) / 5) * 5;
-                        this.renderSpots();
-                    }
-                });
-
-                window.addEventListener('mouseup', () => {
-                    this.isPanning = false;
-                    if (this.draggingSpot) {
-                        this.draggingSpot = null;
-                        this.saveSpots();
-                    }
-                });
-
-                // Mouse Wheel Zoom
-                this.dom.viewport.addEventListener('wheel', (e) => {
-                    e.preventDefault();
-                    const factor = e.deltaY < 0 ? 1.1 : 0.9;
-                    this.zoom = Math.min(Math.max(0.3, this.zoom * factor), 2.5);
-                    this.applyTransform();
-                }, { passive: false });
-
-                // Zoom Buttons
-                this.dom.zoomInBtn.addEventListener('click', () => { this.zoom = Math.min(2.5, this.zoom * 1.2); this.applyTransform(); });
-                this.dom.zoomOutBtn.addEventListener('click', () => { this.zoom = Math.max(0.3, this.zoom / 1.2); this.applyTransform(); });
-                this.dom.zoomResetBtn.addEventListener('click', () => { this.zoom = 0.85; this.panX = 20; this.panY = 20; this.applyTransform(); });
-
-                // Filters
-                this.dom.searchInput.addEventListener('input', () => this.renderSpots());
-                this.dom.categoryFilter.addEventListener('change', () => this.renderSpots());
-                this.dom.statusFilter.addEventListener('change', () => this.renderSpots());
-
-                // Layout Mode Toggle
-                this.dom.layoutEditToggle.addEventListener('click', () => {
-                    this.isLayoutMode = !this.isLayoutMode;
-                    this.dom.layoutEditToggle.classList.toggle('bg-amber-600', this.isLayoutMode);
-                    this.dom.layoutEditToggle.classList.toggle('text-white', this.isLayoutMode);
-                    this.dom.editToggleText.textContent = this.isLayoutMode ? "Exit Layout" : "Layout Mode";
-                    this.dom.editModeBanner.classList.toggle('hidden', !this.isLayoutMode);
-                    this.dom.layoutBuilderControls.classList.toggle('hidden', !this.isLayoutMode);
-                });
-
-                // Spawn Spot in Layout Mode
-                this.dom.svg.addEventListener('dblclick', (e) => {
-                    if (!this.isLayoutMode || e.target.closest('.spot-element')) return;
-                    const pt = this.getSVGPoint(e.clientX, e.clientY);
-                    const newId = `NEW-${Math.floor(100 + Math.random() * 900)}`;
-                    const newSpot = {
-                        id: newId,
-                        x: Math.round(pt.x / 5) * 5,
-                        y: Math.round(pt.y / 5) * 5,
-                        width: 22,
-                        height: 65,
-                        angle: 0,
-                        category: 'Empty Spots',
-                        status: 'AVAILABLE'
-                    };
-                    this.spots.push(newSpot);
-                    this.selectedSpotId = newId;
-                    this.saveSpots();
-                    this.render();
-                    this.showToast(`Spawned new spot #${newId}`);
-                });
-
-                // Inspector Form
-                this.dom.statusBtns.forEach(btn => {
-                    btn.addEventListener('click', (e) => {
-                        const st = e.currentTarget.getAttribute('data-status');
-                        if (this.selectedSpot) {
-                            this.selectedSpot.status = st;
-                            this.updateInspectorStatusBtns(st);
-                            this.saveSpots();
-                            this.renderSpots();
-                        }
-                    });
-                });
-
-                this.dom.editorForm.addEventListener('submit', (e) => {
-                    e.preventDefault();
-                    if (!this.selectedSpot) return;
-
-                    const spot = this.selectedSpot;
-                    const newId = this.dom.editSpotId.value.trim();
-
-                    if (newId && newId !== spot.id) {
-                        spot.id = newId;
-                        this.selectedSpotId = newId;
-                    }
-
-                    spot.category = this.dom.editCategory.value;
-                    spot.driver = this.dom.editDriver.value.trim();
-                    spot.plate = this.dom.editPlate.value.trim();
-                    spot.phone = this.dom.editPhone.value.trim();
-                    spot.checkIn = this.dom.editCheckIn.value;
-                    spot.checkOut = this.dom.editCheckOut.value;
-                    spot.notes = this.dom.editNotes.value.trim();
-
-                    this.saveSpots();
-                    this.render();
-                    this.showToast(`Saved spot #${spot.id} details`);
-                });
-
-                this.dom.quickVacantBtn.addEventListener('click', () => {
-                    if (this.selectedSpot) {
-                        this.selectedSpot.status = 'AVAILABLE';
-                        this.selectedSpot.driver = '';
-                        this.selectedSpot.plate = '';
-                        this.populateForm(this.selectedSpot);
-                        this.saveSpots();
-                        this.renderSpots();
-                        this.showToast(`Spot #${this.selectedSpot.id} marked Vacant`);
-                    }
-                });
-
-                this.dom.quickOccupiedBtn.addEventListener('click', () => {
-                    if (this.selectedSpot) {
-                        this.selectedSpot.status = 'OCCUPIED';
-                        this.populateForm(this.selectedSpot);
-                        this.saveSpots();
-                        this.renderSpots();
-                        this.showToast(`Spot #${this.selectedSpot.id} marked Occupied`);
-                    }
-                });
-
-                this.dom.rotateSpotBtn.addEventListener('click', () => {
-                    if (this.selectedSpot) {
-                        this.selectedSpot.angle = (this.selectedSpot.angle + 15) % 360;
-                        this.saveSpots();
-                        this.renderSpots();
-                    }
-                });
-
-                this.dom.deleteSpotBtn.addEventListener('click', () => {
-                    if (this.selectedSpot) {
-                        const id = this.selectedSpot.id;
-                        this.spots = this.spots.filter(s => s.id !== id);
-                        this.selectedSpotId = null;
-                        this.saveSpots();
-                        this.render();
-                        this.showToast(`Deleted spot #${id}`);
-                    }
-                });
-
-                this.dom.closeInspectorBtn.addEventListener('click', () => {
-                    this.selectedSpotId = null;
-                    this.renderInspector();
-                    this.renderSpots();
-                });
-
-                this.dom.resetDataBtn.addEventListener('click', () => this.resetLayout());
-                
-                this.dom.exportDataBtn.addEventListener('click', () => {
-                    const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(this.spots, null, 2));
-                    const dl = document.createElement('a');
-                    dl.setAttribute("href", dataStr);
-                    dl.setAttribute("download", `10701_Ford_Map_Export_${new Date().toISOString().slice(0,10)}.json`);
-                    document.body.appendChild(dl);
-                    dl.click();
-                    dl.remove();
-                });
-            }
-
-            getSVGPoint(clientX, clientY) {
-                const pt = this.dom.svg.createSVGPoint();
-                pt.x = clientX;
-                pt.y = clientY;
-                return pt.matrixTransform(this.dom.mapGroup.getScreenCTM().inverse());
-            }
-
-            applyTransform() {
-                this.dom.mapGroup.setAttribute('transform', `translate(${this.panX}, ${this.panY}) scale(${this.zoom})`);
-                this.dom.zoomResetBtn.textContent = `${Math.round(this.zoom * 100)}%`;
-            }
-
-            render() {
-                this.renderBackground();
-                this.renderSpots();
-                this.renderInspector();
-                this.updateStats();
-            }
-
-            renderBackground() {
-                this.dom.svg.setAttribute('viewBox', '0 0 1700 1200');
-
-                const bgHtml = `
-                    <!-- Property Boundary Fence -->
-                    <polygon points="50,40 1650,40 1650,400 1620,800 1300,1100 200,1150 50,1100" fill="#0b1329" stroke="#1e293b" stroke-width="6" rx="20" />
-                    
-                    <!-- Main Driveway & Gate -->
-                    <rect x="170" y="40" width="50" height="90" fill="#1e293b" rx="4" />
-                    <text x="195" y="100" fill="#64748b" font-size="10" font-weight="700" writing-mode="tb" text-anchor="middle">DRIVEWAY</text>
-                    
-                    <g transform="translate(1160, 40)">
-                        <rect x="0" y="0" width="50" height="60" fill="#334155" rx="4" />
-                        <text x="25" y="35" fill="#f8fafc" font-size="9" font-weight="800" text-anchor="middle">GATE</text>
-                    </g>
-
-                    <!-- Title Banner On Map Ground (matching photo text) -->
-                    <text x="850" y="140" fill="#334155" font-size="36" font-weight="900" text-anchor="middle" letter-spacing="2">10701 FORD RD MAP V8</text>
-                `;
-
-                this.dom.bgGroup.innerHTML = bgHtml;
-            }
-
-            renderSpots() {
-                const search = this.dom.searchInput.value.toLowerCase().trim();
-                const catF = this.dom.categoryFilter.value;
-                const statF = this.dom.statusFilter.value;
-
-                let html = '';
-
-                this.spots.forEach(spot => {
-                    const isSelected = spot.id === this.selectedSpotId;
-                    
-                    // Filter match
-                    const matchSearch = !search || spot.id.toLowerCase().includes(search) || (spot.driver && spot.driver.toLowerCase().includes(search)) || (spot.plate && spot.plate.toLowerCase().includes(search));
-                    const matchCat = catF === 'ALL' || spot.category === catF;
-                    const matchStat = statF === 'ALL' || spot.status === statF;
-
-                    const isHighlight = search && matchSearch;
-
-                    // Color determination
-                    let fillColor = CATEGORY_COLORS[spot.category] || '#22C55E';
-                    if (spot.status === 'OCCUPIED') fillColor = '#EF4444'; // Red override for occupied
-                    else if (spot.status === 'RESERVED') fillColor = '#A855F7';
-
-                    html += `
-                        <g class="spot-element ${isSelected ? 'selected-spot-active' : ''} ${isHighlight ? 'highlight-search' : ''}" 
-                           data-id="${spot.id}"
-                           transform="translate(${spot.x}, ${spot.y}) rotate(${spot.angle || 0})">
-                            
-                            <rect x="${-spot.width/2}" y="${-spot.height/2}" 
-                                  width="${spot.width}" height="${spot.height}" 
-                                  fill="${fillColor}" fill-opacity="${spot.status === 'AVAILABLE' ? '0.75' : '0.95'}"
-                                  stroke="#0f172a" stroke-width="1.2" rx="2" />
-                            
-                            <text x="0" y="${spot.height > 30 ? 3 : 2}" 
-                                  fill="#ffffff" font-size="${spot.id.length > 3 ? '7' : '8.5'}" font-weight="800" font-family="JetBrains Mono" text-anchor="middle">
-                                ${spot.id}
-                            </text>
-                        </g>
-                    `;
-                });
-
-                this.dom.spotsGroup.innerHTML = html;
-
-                // Bind click events
-                const elements = this.dom.spotsGroup.querySelectorAll('.spot-element');
-                elements.forEach(el => {
-                    el.addEventListener('click', (e) => {
-                        e.stopPropagation();
-                        const id = el.getAttribute('data-id');
-                        this.selectedSpotId = id;
-                        this.renderInspector();
-                        this.renderSpots();
-                    });
-
-                    el.addEventListener('mousedown', (e) => {
-                        if (!this.isLayoutMode) return;
-                        e.stopPropagation();
-                        const id = el.getAttribute('data-id');
-                        this.selectedSpotId = id;
-                        this.draggingSpot = this.spots.find(s => s.id === id);
-                        const pt = this.getSVGPoint(e.clientX, e.clientY);
-                        this.dragOffset = {
-                            x: pt.x - this.draggingSpot.x,
-                            y: pt.y - this.draggingSpot.y
-                        };
-                        this.renderInspector();
-                    });
-                });
-            }
-
-            renderInspector() {
-                const spot = this.selectedSpot;
-
-                if (!spot) {
-                    this.dom.emptyState.classList.remove('hidden');
-                    this.dom.editorForm.classList.add('hidden');
-                    this.dom.inspectorFooter.classList.add('hidden');
-                    this.dom.inspectorTitle.textContent = "Select Spot on Map";
-                    this.dom.inspectorSub.textContent = "Click any spot on 10701 Ford layout";
-                    this.dom.badgeIcon.textContent = "#";
-                    return;
-                }
-
-                this.dom.emptyState.classList.add('hidden');
-                this.dom.editorForm.classList.remove('hidden');
-                this.dom.inspectorFooter.classList.remove('hidden');
-
-                this.dom.inspectorTitle.textContent = `Spot #${spot.id}`;
-                this.dom.inspectorSub.textContent = `Category: ${spot.category || 'Standard'}`;
-                this.dom.badgeIcon.textContent = spot.id.substring(0, 3);
-
-                this.populateForm(spot);
-            }
-
-            populateForm(spot) {
-                this.dom.editSpotId.value = spot.id;
-                this.dom.editCategory.value = spot.category || 'Empty Spots';
-                this.dom.editDriver.value = spot.driver || '';
-                this.dom.editPlate.value = spot.plate || '';
-                this.dom.editPhone.value = spot.phone || '';
-                this.dom.editCheckIn.value = spot.checkIn || '';
-                this.dom.editCheckOut.value = spot.checkOut || '';
-                this.dom.editNotes.value = spot.notes || '';
-
-                this.updateInspectorStatusBtns(spot.status);
-            }
-
-            updateInspectorStatusBtns(activeStatus) {
-                this.dom.statusBtns.forEach(btn => {
-                    const status = btn.getAttribute('data-status');
-                    if (status === activeStatus) {
-                        btn.classList.add('ring-2', 'ring-cyan-500', 'bg-slate-700');
-                    } else {
-                        btn.classList.remove('ring-2', 'ring-cyan-500', 'bg-slate-700');
-                    }
-                });
-            }
-
-            updateStats() {
-                const total = this.spots.length;
-                const occupied = this.spots.filter(s => s.status === 'OCCUPIED').length;
-                const available = this.spots.filter(s => s.status === 'AVAILABLE').length;
-                const rate = total > 0 ? Math.round((occupied / total) * 100) : 0;
-
-                this.dom.statTotal.textContent = total;
-                this.dom.statOccupied.textContent = occupied;
-                this.dom.statAvailable.textContent = available;
-                this.dom.statRate.textContent = `${rate}%`;
-            }
-
-            showToast(msg) {
-                this.dom.toastMsg.textContent = msg;
-                this.dom.toast.classList.remove('-translate-y-16', 'opacity-0');
-                this.dom.toast.classList.add('translate-y-0', 'opacity-100');
-
-                setTimeout(() => {
-                    this.dom.toast.classList.remove('translate-y-0', 'opacity-100');
-                    this.dom.toast.classList.add('-translate-y-16', 'opacity-0');
-                }, 2800);
-            }
-        }
-
-        // Initialize App on DOM Ready
-        window.addEventListener('DOMContentLoaded', () => {
-            window.app = new MapApp();
+    <!-- Inspector Sidebar -->
+    <aside id="inspector" class="w-80 bg-slate-800 border-l border-slate-700 p-4 flex flex-col gap-4 overflow-y-auto shrink-0">
+      <h2 id="inspectorTitle" class="text-sm font-bold border-b border-slate-700 pb-2 text-slate-200 uppercase tracking-wider">
+        No Spot Selected
+      </h2>
+
+      <!-- Multi-Select Group Actions Panel -->
+      <div id="multiSelectControls" class="hidden space-y-4">
+        <div class="bg-slate-900/60 p-3 rounded border border-slate-700">
+          <p class="text-xs text-slate-400 uppercase font-semibold mb-2">Group Nudge Movement</p>
+          <div class="grid grid-cols-2 gap-2">
+            <button onclick="moveSelectedSpots(0, -10)" class="bg-slate-700 hover:bg-slate-600 py-1.5 rounded text-xs"><i class="fa-solid fa-arrow-up"></i> Up (-10 Y)</button>
+            <button onclick="moveSelectedSpots(0, 10)" class="bg-slate-700 hover:bg-slate-600 py-1.5 rounded text-xs"><i class="fa-solid fa-arrow-down"></i> Down (+10 Y)</button>
+            <button onclick="moveSelectedSpots(-10, 0)" class="bg-slate-700 hover:bg-slate-600 py-1.5 rounded text-xs"><i class="fa-solid fa-arrow-left"></i> Left (-10 X)</button>
+            <button onclick="moveSelectedSpots(10, 0)" class="bg-slate-700 hover:bg-slate-600 py-1.5 rounded text-xs"><i class="fa-solid fa-arrow-right"></i> Right (+10 X)</button>
+          </div>
+        </div>
+
+        <div class="bg-slate-900/60 p-3 rounded border border-slate-700">
+          <p class="text-xs text-slate-400 uppercase font-semibold mb-2">Batch Change Category</p>
+          <select id="batchTypeSelect" class="w-full bg-slate-800 border border-slate-600 rounded p-1.5 text-xs mb-2">
+            <option value="Drop Trailer">Drop Trailer</option>
+            <option value="Company">Company</option>
+            <option value="VIP">VIP</option>
+            <option value="Owner Operators">Owner Operators</option>
+            <option value="Bobtail">Bobtail</option>
+            <option value="Empty Spots">Empty Spots</option>
+          </select>
+          <button onclick="applyBatchType()" class="w-full bg-amber-600 hover:bg-amber-500 py-1.5 rounded text-xs font-bold text-white">Apply Category to Group</button>
+        </div>
+
+        <button onclick="clearSelection()" class="w-full bg-slate-700 hover:bg-slate-600 py-1.5 rounded text-xs text-slate-300">
+          Clear Selection
+        </button>
+      </div>
+
+      <!-- Single Spot Detail Editor -->
+      <div id="singleSelectControls" class="hidden space-y-3">
+        <div>
+          <label class="block text-xs text-slate-400 mb-1">Spot ID</label>
+          <input type="text" id="spotIdInput" class="w-full bg-slate-900 border border-slate-700 rounded px-2.5 py-1.5 text-xs">
+        </div>
+        <div>
+          <label class="block text-xs text-slate-400 mb-1">Rotation Angle (°)</label>
+          <input type="number" id="spotAngleInput" onchange="updateSingleSpotAngle()" class="w-full bg-slate-900 border border-slate-700 rounded px-2.5 py-1.5 text-xs">
+        </div>
+        <div>
+          <label class="block text-xs text-slate-400 mb-1">Category</label>
+          <select id="spotCategoryInput" class="w-full bg-slate-900 border border-slate-700 rounded px-2 py-1.5 text-xs">
+            <option value="Drop Trailer">Drop Trailer</option>
+            <option value="Company">Company</option>
+            <option value="VIP">VIP</option>
+            <option value="Owner Operators">Owner Operators</option>
+            <option value="Bobtail">Bobtail</option>
+            <option value="Empty Spots">Empty Spots</option>
+          </select>
+        </div>
+        <div>
+          <label class="block text-xs text-slate-400 mb-1">Fleet / Driver</label>
+          <input type="text" id="spotFleetInput" class="w-full bg-slate-900 border border-slate-700 rounded px-2.5 py-1.5 text-xs">
+        </div>
+        <div>
+          <label class="block text-xs text-slate-400 mb-1">License Plate / Trailer #</label>
+          <input type="text" id="spotPlateInput" class="w-full bg-slate-900 border border-slate-700 rounded px-2.5 py-1.5 text-xs">
+        </div>
+        <button onclick="saveSingleSpotDetails()" class="w-full bg-emerald-600 hover:bg-emerald-500 py-2 rounded text-xs font-bold text-white mt-2">
+          Save Spot Details
+        </button>
+      </div>
+    </aside>
+
+  </div>
+
+  <script>
+    // Exact V8 Sept 2026 Default Spot Data Generator
+    function generateV8DefaultSpots() {
+      let result = [];
+
+      // Top Fence Line (1 - 37)
+      for(let i = 1; i <= 37; i++) {
+        result.push({
+          id: i.toString(),
+          x: 200 + (37 - i) * 22,
+          y: 80,
+          width: 20,
+          height: 48,
+          angle: 0,
+          category: i <= 18 ? "Company" : "Drop Trailer",
+          status: "Available"
         });
-    </script>
+      }
+
+      // Top Right Gate Bobtails (230 - 250)
+      for(let i = 230; i <= 250; i++) {
+        result.push({
+          id: i.toString(),
+          x: 1050 + (i - 230) * 22,
+          y: 80,
+          width: 20,
+          height: 48,
+          angle: 0,
+          category: "VIP",
+          status: "Available"
+        });
+      }
+
+      // Left Vertical Fence Line (40 - 108)
+      for(let i = 40; i <= 108; i++) {
+        result.push({
+          id: i.toString(),
+          x: 80,
+          y: 150 + (i - 40) * 22,
+          width: 48,
+          height: 20,
+          angle: 0,
+          category: "Empty Spots",
+          status: "Available"
+        });
+      }
+
+      // B-Series Left Vertical Stack (B1 - B23)
+      for(let i = 1; i <= 23; i++) {
+        result.push({
+          id: `B${i}`,
+          x: 300,
+          y: 200 + (i - 1) * 22,
+          width: 48,
+          height: 20,
+          angle: 0,
+          category: "Company",
+          status: "Available"
+        });
+      }
+
+      // Middle Island Rows 1 to 4
+      // Row 1 (251 - 300)
+      for(let i = 251; i <= 275; i++) {
+        result.push({ id: i.toString(), x: 380 + (i - 251) * 22, y: 200, width: 20, height: 48, angle: 0, category: "Drop Trailer", status: "Available" });
+      }
+      for(let i = 276; i <= 300; i++) {
+        result.push({ id: i.toString(), x: 380 + (i - 276) * 22, y: 250, width: 20, height: 48, angle: 0, category: "VIP", status: "Available" });
+      }
+
+      // Row 2 (301 - 350)
+      for(let i = 301; i <= 325; i++) {
+        result.push({ id: i.toString(), x: 380 + (i - 301) * 22, y: 380, width: 20, height: 48, angle: 0, category: "Owner Operators", status: "Available" });
+      }
+      for(let i = 326; i <= 350; i++) {
+        result.push({ id: i.toString(), x: 380 + (i - 326) * 22, y: 430, width: 20, height: 48, angle: 0, category: "Empty Spots", status: "Available" });
+      }
+
+      // Row 3 (351 - 400)
+      for(let i = 351; i <= 375; i++) {
+        result.push({ id: i.toString(), x: 380 + (i - 351) * 22, y: 560, width: 20, height: 48, angle: 0, category: "Empty Spots", status: "Available" });
+      }
+      for(let i = 376; i <= 400; i++) {
+        result.push({ id: i.toString(), x: 380 + (i - 376) * 22, y: 610, width: 20, height: 48, angle: 0, category: "Owner Operators", status: "Available" });
+      }
+
+      // Lower Sub-Blocks (B24-B36 & 401-415)
+      for(let i = 24; i <= 36; i++) {
+        result.push({ id: `B${i}`, x: 450 + (i - 24) * 22, y: 720, width: 20, height: 48, angle: 0, category: "Company", status: "Available" });
+      }
+      for(let i = 401; i <= 415; i++) {
+        result.push({ id: i.toString(), x: 450 + (i - 401) * 22, y: 770, width: 20, height: 48, angle: 0, category: "Empty Spots", status: "Available" });
+      }
+
+      // Southern Diagonal Curve (109 - 220)
+      for(let i = 109; i <= 200; i++) {
+        let step = i - 109;
+        result.push({
+          id: i.toString(),
+          x: 200 + step * 18,
+          y: 1650 - step * 12,
+          width: 48,
+          height: 20,
+          angle: -35,
+          category: "Empty Spots",
+          status: "Available"
+        });
+      }
+
+      return result;
+    }
+
+    let spots = [];
+    let selectedSpotIds = new Set();
+    let isLayoutMode = false;
+    let pan = { x: 0, y: 0 };
+    let zoom = 0.85;
+    let isPanning = false;
+    let isSelecting = false;
+    let isDraggingGroup = false;
+    let selectionBoxStart = { x: 0, y: 0 };
+    let startMousePos = { x: 0, y: 0 };
+
+    const svg = document.getElementById('yardCanvas');
+    const mapGroup = document.getElementById('mapGroup');
+    const viewport = document.getElementById('viewport');
+    const selectionBox = document.getElementById('selectionBox');
+
+    const categoryColors = {
+      "Drop Trailer": "#d97706",
+      "Company": "#eab308",
+      "VIP": "#9333ea",
+      "Owner Operators": "#0284c7",
+      "Bobtail": "#f59e0b",
+      "Empty Spots": "#10b981"
+    };
+
+    function init() {
+      const saved = localStorage.getItem('10701_FORD_v8_spots');
+      if (saved) {
+        try { spots = JSON.parse(saved); } catch(e) { spots = generateV8DefaultSpots(); }
+      } else {
+        spots = generateV8DefaultSpots();
+      }
+      renderMap();
+      setupEventListeners();
+    }
+
+    function renderMap() {
+      mapGroup.innerHTML = '';
+      mapGroup.setAttribute('transform', `translate(${pan.x}, ${pan.y}) scale(${zoom})`);
+
+      spots.forEach(spot => {
+        const isSelected = selectedSpotIds.has(spot.id);
+        const g = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+        const rot = spot.angle ? `rotate(${spot.angle})` : '';
+        g.setAttribute('transform', `translate(${spot.x}, ${spot.y}) ${rot}`);
+        g.dataset.id = spot.id;
+        if (isSelected) g.classList.add('spot-selected');
+
+        const rect = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
+        rect.setAttribute('width', spot.width || 20);
+        rect.setAttribute('height', spot.height || 48);
+        rect.setAttribute('rx', '2');
+        rect.setAttribute('fill', categoryColors[spot.category] || '#64748b');
+        rect.setAttribute('stroke', isSelected ? '#3b82f6' : '#1e293b');
+        rect.setAttribute('stroke-width', isSelected ? '2.5' : '1');
+
+        const text = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+        text.setAttribute('x', (spot.width || 20) / 2);
+        text.setAttribute('y', (spot.height || 48) / 2 + 3);
+        text.setAttribute('fill', '#ffffff');
+        text.setAttribute('font-size', '8');
+        text.setAttribute('font-weight', 'bold');
+        text.setAttribute('text-anchor', 'middle');
+        text.textContent = spot.id;
+
+        g.appendChild(rect);
+        g.appendChild(text);
+        mapGroup.appendChild(g);
+      });
+
+      updateInspector();
+    }
+
+    function setupEventListeners() {
+      // Toggle Layout Edit Mode
+      document.getElementById('layoutEditToggle').addEventListener('click', () => {
+        isLayoutMode = !isLayoutMode;
+        document.getElementById('editToggleText').textContent = isLayoutMode ? "Layout Mode: ON" : "Layout Mode";
+        document.getElementById('layoutEditToggle').classList.toggle('bg-amber-600', isLayoutMode);
+        document.getElementById('layoutEditToggle').classList.toggle('text-white', isLayoutMode);
+      });
+
+      // MOUSE DOWN
+      viewport.addEventListener('mousedown', (e) => {
+        const rect = viewport.getBoundingClientRect();
+        const mouseX = e.clientX - rect.left;
+        const mouseY = e.clientY - rect.top;
+
+        const targetSpot = e.target.closest('g[data-id]');
+
+        // Shift + Click Drag -> Multi-Select Marquee
+        if (e.shiftKey) {
+          isSelecting = true;
+          selectionBoxStart = { x: mouseX, y: mouseY };
+          selectionBox.style.left = `${mouseX}px`;
+          selectionBox.style.top = `${mouseY}px`;
+          selectionBox.style.width = '0px';
+          selectionBox.style.height = '0px';
+          selectionBox.classList.remove('hidden');
+          return;
+        }
+
+        // Click Spot
+        if (targetSpot) {
+          const clickedId = targetSpot.dataset.id;
+          if (!selectedSpotIds.has(clickedId)) {
+            if (!e.ctrlKey && !e.metaKey) selectedSpotIds.clear();
+            selectedSpotIds.add(clickedId);
+          }
+
+          if (isLayoutMode) {
+            isDraggingGroup = true;
+            startMousePos = { x: e.clientX, y: e.clientY };
+          }
+          renderMap();
+          return;
+        }
+
+        // Click Canvas -> Pan
+        if (!targetSpot) {
+          isPanning = true;
+          startMousePos = { x: e.clientX - pan.x, y: e.clientY - pan.y };
+          if (!e.ctrlKey) selectedSpotIds.clear();
+          renderMap();
+        }
+      });
+
+      // MOUSE MOVE
+      window.addEventListener('mousemove', (e) => {
+        const rect = viewport.getBoundingClientRect();
+        const mouseX = e.clientX - rect.left;
+        const mouseY = e.clientY - rect.top;
+
+        // Selection Box Check
+        if (isSelecting) {
+          const width = Math.abs(mouseX - selectionBoxStart.x);
+          const height = Math.abs(mouseY - selectionBoxStart.y);
+          const left = Math.min(mouseX, selectionBoxStart.x);
+          const top = Math.min(mouseY, selectionBoxStart.y);
+
+          selectionBox.style.left = `${left}px`;
+          selectionBox.style.top = `${top}px`;
+          selectionBox.style.width = `${width}px`;
+          selectionBox.style.height = `${height}px`;
+
+          const boxRect = {
+            left: left + rect.left,
+            top: top + rect.top,
+            right: left + width + rect.left,
+            bottom: top + height + rect.top
+          };
+
+          const spotElements = document.querySelectorAll('g[data-id]');
+          spotElements.forEach(elem => {
+            const id = elem.dataset.id;
+            const spotBounds = elem.getBoundingClientRect();
+
+            const isInside = !(
+              spotBounds.right < boxRect.left ||
+              spotBounds.left > boxRect.right ||
+              spotBounds.bottom < boxRect.top ||
+              spotBounds.top > boxRect.bottom
+            );
+
+            if (isInside) selectedSpotIds.add(id);
+          });
+
+          renderMap();
+          return;
+        }
+
+        // Drag Group
+        if (isDraggingGroup && isLayoutMode) {
+          const dx = (e.clientX - startMousePos.x) / zoom;
+          const dy = (e.clientY - startMousePos.y) / zoom;
+
+          spots.forEach(spot => {
+            if (selectedSpotIds.has(spot.id)) {
+              spot.x += dx;
+              spot.y += dy;
+            }
+          });
+
+          startMousePos = { x: e.clientX, y: e.clientY };
+          renderMap();
+          return;
+        }
+
+        // Pan Canvas
+        if (isPanning) {
+          pan.x = e.clientX - startMousePos.x;
+          pan.y = e.clientY - startMousePos.y;
+          mapGroup.setAttribute('transform', `translate(${pan.x}, ${pan.y}) scale(${zoom})`);
+        }
+      });
+
+      // MOUSE UP
+      window.addEventListener('mouseup', () => {
+        if (isSelecting) {
+          isSelecting = false;
+          selectionBox.classList.add('hidden');
+        }
+        if (isDraggingGroup) {
+          isDraggingGroup = false;
+          saveToLocalStorage();
+        }
+        isPanning = false;
+      });
+
+      // Zoom
+      viewport.addEventListener('wheel', (e) => {
+        e.preventDefault();
+        const factor = 1.1;
+        if (e.deltaY < 0) zoom *= factor;
+        else zoom /= factor;
+        zoom = Math.min(Math.max(0.15, zoom), 4);
+        renderMap();
+      });
+    }
+
+    function moveSelectedSpots(dx, dy) {
+      spots.forEach(spot => {
+        if (selectedSpotIds.has(spot.id)) {
+          spot.x += dx;
+          spot.y += dy;
+        }
+      });
+      renderMap();
+      saveToLocalStorage();
+    }
+
+    function applyBatchType() {
+      const type = document.getElementById('batchTypeSelect').value;
+      spots.forEach(spot => {
+        if (selectedSpotIds.has(spot.id)) spot.category = type;
+      });
+      renderMap();
+      saveToLocalStorage();
+    }
+
+    function clearSelection() {
+      selectedSpotIds.clear();
+      renderMap();
+    }
+
+    function updateInspector() {
+      const count = selectedSpotIds.size;
+      const title = document.getElementById('inspectorTitle');
+      const multiCtrl = document.getElementById('multiSelectControls');
+      const singleCtrl = document.getElementById('singleSelectControls');
+
+      if (count === 0) {
+        title.textContent = 'No Spot Selected';
+        multiCtrl.classList.add('hidden');
+        singleCtrl.classList.add('hidden');
+      } else if (count === 1) {
+        const id = Array.from(selectedSpotIds)[0];
+        const spot = spots.find(s => s.id === id);
+        title.textContent = `Spot ${spot.id}`;
+        multiCtrl.classList.add('hidden');
+        singleCtrl.classList.remove('hidden');
+
+        document.getElementById('spotIdInput').value = spot.id;
+        document.getElementById('spotAngleInput').value = spot.angle || 0;
+        document.getElementById('spotCategoryInput').value = spot.category || 'Empty Spots';
+        document.getElementById('spotFleetInput').value = spot.fleet || '';
+        document.getElementById('spotPlateInput').value = spot.plate || '';
+      } else {
+        title.textContent = `${count} Spots Selected`;
+        multiCtrl.classList.remove('hidden');
+        singleCtrl.classList.add('hidden');
+      }
+    }
+
+    function updateSingleSpotAngle() {
+      if (selectedSpotIds.size !== 1) return;
+      const id = Array.from(selectedSpotIds)[0];
+      const spot = spots.find(s => s.id === id);
+      if (spot) {
+        spot.angle = parseFloat(document.getElementById('spotAngleInput').value) || 0;
+        renderMap();
+        saveToLocalStorage();
+      }
+    }
+
+    function saveSingleSpotDetails() {
+      if (selectedSpotIds.size !== 1) return;
+      const id = Array.from(selectedSpotIds)[0];
+      const spot = spots.find(s => s.id === id);
+      if (spot) {
+        spot.id = document.getElementById('spotIdInput').value;
+        spot.angle = parseFloat(document.getElementById('spotAngleInput').value) || 0;
+        spot.category = document.getElementById('spotCategoryInput').value;
+        spot.fleet = document.getElementById('spotFleetInput').value;
+        spot.plate = document.getElementById('spotPlateInput').value;
+        renderMap();
+        saveToLocalStorage();
+      }
+    }
+
+    function saveToLocalStorage() {
+      localStorage.setItem('10701_FORD_v8_spots', JSON.stringify(spots));
+    }
+
+    function exportJSON() {
+      const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(spots, null, 2));
+      const downloadAnchor = document.createElement('a');
+      downloadAnchor.setAttribute("href", dataStr);
+      downloadAnchor.setAttribute("download", "10701_Ford_Map_Export_2026-09-17.json");
+      document.body.appendChild(downloadAnchor);
+      downloadAnchor.click();
+      downloadAnchor.remove();
+    }
+
+    function importJSON(event) {
+      const file = event.target.files[0];
+      if (!file) return;
+      const reader = new FileReader();
+      reader.onload = function(e) {
+        try {
+          spots = JSON.parse(e.target.result);
+          renderMap();
+          saveToLocalStorage();
+        } catch (err) {
+          alert('Invalid JSON File.');
+        }
+      };
+      reader.readAsText(file);
+    }
+
+    function filterSpots() {
+      const search = document.getElementById('searchInput').value.toLowerCase();
+      const cat = document.getElementById('filterType').value;
+
+      selectedSpotIds.clear();
+      if (search || cat !== 'ALL') {
+        spots.forEach(spot => {
+          const matchSearch = spot.id.toLowerCase().includes(search) || (spot.fleet && spot.fleet.toLowerCase().includes(search));
+          const matchCat = cat === 'ALL' || spot.category === cat;
+          if (matchSearch && matchCat) selectedSpotIds.add(spot.id);
+        });
+      }
+      renderMap();
+    }
+
+    window.onload = init;
+  </script>
 </body>
 </html>
