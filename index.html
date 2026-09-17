@@ -4,7 +4,135 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>10701 Map V8 September 2026 - Interactive Spot Manager</title>
-    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.tailwindcss.com">
+        // Multi-Select & Dragging Variables
+let selectedSpotIds = new Set();
+let isSelecting = false;
+let isDraggingSpot = false;
+let isPanning = false;
+let selectionBoxStart = { x: 0, y: 0 };
+let startMousePos = { x: 0, y: 0 };
+
+const viewport = document.getElementById('viewport');
+const selectionBox = document.getElementById('selectionBox');
+
+// 1. MOUSE DOWN
+viewport.addEventListener('mousedown', (e) => {
+  const rect = viewport.getBoundingClientRect();
+  const mouseX = e.clientX - rect.left;
+  const mouseY = e.clientY - rect.top;
+
+  const targetSpot = e.target.closest('g[data-id]');
+
+  // SHIFT + CLICK DRAG -> Start Selection Box
+  if (e.shiftKey) {
+    isSelecting = true;
+    selectionBoxStart = { x: mouseX, y: mouseY };
+    selectionBox.style.left = `${mouseX}px`;
+    selectionBox.style.top = `${mouseY}px`;
+    selectionBox.style.width = '0px';
+    selectionBox.style.height = '0px';
+    selectionBox.classList.remove('hidden');
+    return;
+  }
+
+  // CLICK ON A SPOT
+  if (targetSpot) {
+    const clickedId = targetSpot.dataset.id;
+    if (!selectedSpotIds.has(clickedId)) {
+      if (!e.ctrlKey && !e.metaKey) selectedSpotIds.clear();
+      selectedSpotIds.add(clickedId);
+    }
+
+    if (isEditMode) {
+      isDraggingSpot = true;
+      startMousePos = { x: e.clientX, y: e.clientY };
+    }
+    renderMap(); // Redraw with selection borders
+    return;
+  }
+
+  // CLICK EMPTY CANVAS -> Pan map
+  if (!targetSpot) {
+    isPanning = true;
+    startMousePos = { x: e.clientX - pan.x, y: e.clientY - pan.y };
+    if (!e.ctrlKey) selectedSpotIds.clear();
+    renderMap();
+  }
+});
+
+// 2. MOUSE MOVE
+window.addEventListener('mousemove', (e) => {
+  const rect = viewport.getBoundingClientRect();
+  const mouseX = e.clientX - rect.left;
+  const mouseY = e.clientY - rect.top;
+
+  // Handle Drag Selection Box
+  if (isSelecting) {
+    const width = Math.abs(mouseX - selectionBoxStart.x);
+    const height = Math.abs(mouseY - selectionBoxStart.y);
+    const left = Math.min(mouseX, selectionBoxStart.x);
+    const top = Math.min(mouseY, selectionBoxStart.y);
+
+    selectionBox.style.left = `${left}px`;
+    selectionBox.style.top = `${top}px`;
+    selectionBox.style.width = `${width}px`;
+    selectionBox.style.height = `${height}px`;
+
+    // Highlight all spots inside marquee box
+    spots.forEach(spot => {
+      const screenX = spot.x * zoom + pan.x;
+      const screenY = spot.y * zoom + pan.y;
+      const screenW = (spot.width || 20) * zoom;
+      const screenH = (spot.height || 48) * zoom;
+
+      if (screenX < left + width && screenX + screenW > left &&
+          screenY < top + height && screenY + screenH > top) {
+        selectedSpotIds.add(spot.id);
+      }
+    });
+    renderMap();
+    return;
+  }
+
+  // Handle Multi-Spot Group Dragging
+  if (isDraggingSpot && isEditMode) {
+    const dx = (e.clientX - startMousePos.x) / zoom;
+    const dy = (e.clientY - startMousePos.y) / zoom;
+
+    spots.forEach(spot => {
+      if (selectedSpotIds.has(spot.id)) {
+        spot.x += dx;
+        spot.y += dy;
+      }
+    });
+
+    startMousePos = { x: e.clientX, y: e.clientY };
+    renderMap();
+    return;
+  }
+
+  // Handle Canvas Panning
+  if (isPanning) {
+    pan.x = e.clientX - startMousePos.x;
+    pan.y = e.clientY - startMousePos.y;
+    mapGroup.setAttribute('transform', `translate(${pan.x}, ${pan.y}) scale(${zoom})`);
+  }
+});
+
+// 3. MOUSE UP
+window.addEventListener('mouseup', () => {
+  if (isSelecting) {
+    isSelecting = false;
+    selectionBox.classList.add('hidden');
+  }
+  if (isDraggingSpot) {
+    isDraggingSpot = false;
+    if (typeof saveToLocalStorage === 'function') saveToLocalStorage();
+  }
+  isPanning = false;
+});
+    </script>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
     <script>
@@ -69,6 +197,22 @@
             from { filter: drop-shadow(0 0 4px #FACC15); }
             to { filter: drop-shadow(0 0 14px #FACC15); }
         }
+
+        /* Styling for the drag selection marquee box */
+.selection-box {
+  position: absolute;
+  border: 2px dashed #3b82f6;
+  background-color: rgba(59, 130, 246, 0.25);
+  pointer-events: none;
+  z-index: 50;
+}
+
+/* Highlight border for selected spots */
+.spot-selected rect {
+  stroke: #3b82f6 !important;
+  stroke-width: 3px !important;
+  filter: drop-shadow(0 0 6px rgba(59, 130, 246, 0.9));
+}
     </style>
 </head>
 <body class="h-full flex flex-col font-sans overflow-hidden select-none bg-slate-950 text-slate-100">
@@ -125,6 +269,17 @@
         </div>
     </header>
 
+    <!-- Visual Interactive Map Canvas -->
+<div id="viewport" class="flex-1 bg-slate-950 relative overflow-hidden">
+  <svg id="yardCanvas" class="w-full h-full absolute top-0 left-0 cursor-grab">
+    <g id="mapGroup"></g>
+  </svg>
+
+  <!-- ADD THE SELECTION BOX HERE -->
+  <div id="selectionBox" class="selection-box hidden"></div>
+
+</div>
+    
     <!-- Filter Bar & Image Legend Header -->
     <div class="bg-slate-900/90 border-b border-slate-800 px-4 py-2 flex flex-wrap items-center justify-between gap-3 text-xs z-20 shrink-0 backdrop-blur">
         <!-- Search & Filter Controls -->
